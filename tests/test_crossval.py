@@ -31,6 +31,17 @@ class TestCrossval(unittest.TestCase):
         m = ModelFixed('test', rdms[0])
         self.rdms = rdms
         self.m = m
+    
+    def test_return_fitted_params(self):
+        from rsatoolbox.inference import bootstrap_crossval
+        rdms = self.rdms
+        m = self.m
+        _, fitted_params = bootstrap_crossval(m, rdms, N=10, k_rdm=2, k_pattern=2,
+                           pattern_descriptor='type',
+                           rdm_descriptor='session',
+                           boot_type='pattern', return_params=True)
+        self.assertEqual(len(fitted_params), 20)    # 20 runs
+        self.assertEqual(len(fitted_params[0]), 1)  # 1 model
 
     def test_crossval(self):
         from rsatoolbox.inference import crossval

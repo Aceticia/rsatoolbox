@@ -23,7 +23,7 @@ def eval_dual_bootstrap(
         models, data, method='cosine', fitter=None,
         k_pattern=1, k_rdm=1, N=1000, n_cv=2,
         pattern_descriptor='index', rdm_descriptor='index',
-        use_correction=True):
+        use_correction=True, return_params=False):
     """dual bootstrap evaluation of models
     i.e. models are evaluated in a bootstrap over rdms, one over patterns
     and a bootstrap over both using the same bootstrap samples for each.
@@ -102,6 +102,7 @@ def eval_dual_bootstrap(
         models = [models]
     evaluations = np.zeros((N, len(models), k_pattern * k_rdm, n_cv, 3))
     noise_ceil = np.zeros((2, N, n_cv, 3))
+    fitted_params = []
     for i_sample in tqdm.trange(N):
         sample, rdm_idx, pattern_idx = bootstrap_sample(
             data,
@@ -113,26 +114,29 @@ def eval_dual_bootstrap(
         if len(np.unique(rdm_idx)) >= k_rdm \
            and len(np.unique(pattern_idx)) >= 3 * k_pattern:
             for i_rep in range(n_cv):
-                evals, cv_nc = _internal_cv(
+                evals, cv_nc, params = _internal_cv(
                     models, sample,
                     pattern_descriptor, rdm_descriptor, pattern_idx,
                     k_pattern, k_rdm,
-                    method, fitter)
+                    method, fitter, return_params=True)
+                fitted_params.append(params)
                 noise_ceil[:, i_sample, i_rep, 0] = cv_nc
                 evaluations[i_sample, :, :, i_rep, 0] = evals[0]
-                evals, cv_nc = _internal_cv(
+                evals, cv_nc, params = _internal_cv(
                     models, sample_rdm,
                     pattern_descriptor, rdm_descriptor,
                     np.unique(data.pattern_descriptors[pattern_descriptor]),
                     k_pattern, k_rdm,
-                    method, fitter)
+                    method, fitter, return_params=True)
+                fitted_params.append(params)
                 noise_ceil[:, i_sample, i_rep, 1] = cv_nc
                 evaluations[i_sample, :, :, i_rep, 1] = evals[0]
-                evals, cv_nc = _internal_cv(
+                evals, cv_nc, params = _internal_cv(
                     models, sample_pattern,
                     pattern_descriptor, rdm_descriptor, pattern_idx,
                     k_pattern, k_rdm,
-                    method, fitter)
+                    method, fitter, return_params=True)
+                fitted_params.append(params)
                 noise_ceil[:, i_sample, i_rep, 2] = cv_nc
                 evaluations[i_sample, :, :, i_rep, 2] = evals[0]
         else:  # sample does not allow desired crossvalidation
@@ -174,7 +178,7 @@ def eval_dual_bootstrap(
     result = Result(models, evaluations, method=method,
                     cv_method=cv_method, noise_ceiling=noise_ceil,
                     variances=variances, dof=dof)
-    return result
+    return (result, fitted_params) if return_params else result
 
 
 def eval_fixed(models, data, theta=None, method='cosine'):
@@ -383,7 +387,7 @@ def eval_bootstrap_rdm(models, data, theta=None, method='cosine', N=1000,
 
 
 def crossval(models, rdms, train_set, test_set, ceil_set=None, method='cosine',
-             fitter=None, pattern_descriptor='index', calc_noise_ceil=True):
+             fitter=None, pattern_descriptor='index', calc_noise_ceil=True, return_params=False):
     """evaluates models on cross-validation sets
 
     Args:
@@ -409,6 +413,7 @@ def crossval(models, rdms, train_set, test_set, ceil_set=None, method='cosine',
         models = [models]
     evaluations = []
     noise_ceil = []
+    fitted_params = [[] for _ in models]
     for i, train in enumerate(train_set):
         test = test_set[i]
         if (train[0].n_rdm == 0 or test[0].n_rdm == 0 or
@@ -425,6 +430,7 @@ def crossval(models, rdms, train_set, test_set, ceil_set=None, method='cosine',
                 pred = pred.subsample_pattern(by=pattern_descriptor,
                                               value=test[1])
                 evals[j] = np.mean(compare(pred, test[0], method))
+                fitted_params[j].append(theta)
             if ceil_set is None and calc_noise_ceil:
                 noise_ceil.append(boot_noise_ceiling(
                     rdms.subsample_pattern(by=pattern_descriptor,
@@ -443,13 +449,13 @@ def crossval(models, rdms, train_set, test_set, ceil_set=None, method='cosine',
 
     result = Result(models, evaluations, method=method,
                     cv_method='crossvalidation', noise_ceiling=noise_ceil)
-    return result
+    return (result, fitted_params) if return_params else result
 
 
 def bootstrap_crossval(models, data, method='cosine', fitter=None,
                        k_pattern=None, k_rdm=None, N=1000, n_cv=2,
                        pattern_descriptor='index', rdm_descriptor='index',
-                       boot_type='both', use_correction=True):
+                       boot_type='both', use_correction=True, return_params=False):
     """evaluates a set of models by k-fold crossvalidation within a bootstrap
 
     Crossvalidation creates variance in the results for a single bootstrap
@@ -522,6 +528,7 @@ def bootstrap_crossval(models, data, method='cosine', fitter=None,
         models = [models]
     evaluations = np.empty((N, len(models), k_pattern * k_rdm, n_cv))
     noise_ceil = np.empty((2, N, n_cv))
+    fitted_params = []
     for i_sample in tqdm.trange(N):
         if boot_type == 'both':
             sample, rdm_idx, pattern_idx = bootstrap_sample(
@@ -544,13 +551,14 @@ def bootstrap_crossval(models, data, method='cosine', fitter=None,
         if len(np.unique(rdm_idx)) >= k_rdm \
            and len(np.unique(pattern_idx)) >= 3 * k_pattern:
             for i_rep in range(n_cv):
-                evals, cv_nc = _internal_cv(
+                evals, cv_nc, params = _internal_cv(
                     models, sample,
                     pattern_descriptor, rdm_descriptor, pattern_idx,
                     k_pattern, k_rdm,
-                    method, fitter)
+                    method, fitter, return_params=True)
                 noise_ceil[:, i_sample, i_rep] = cv_nc
                 evaluations[i_sample, :, :, i_rep] = evals[0]
+                fitted_params.append(params)
         else:  # sample does not allow desired crossvalidation
             evaluations[i_sample, :, :] = np.nan
             noise_ceil[:, i_sample] = np.nan
@@ -591,14 +599,17 @@ def bootstrap_crossval(models, data, method='cosine', fitter=None,
     result = Result(models, evaluations, method=method,
                     cv_method=cv_method, noise_ceiling=noise_ceil,
                     variances=variances, dof=dof)
-    return result
+    if return_params:
+        return result, fitted_params
+    else:
+        return result
 
 
 def eval_dual_bootstrap_random(
         models, data, method='cosine', fitter=None,
         n_pattern=None, n_rdm=None, N=1000, n_cv=2,
         pattern_descriptor='index', rdm_descriptor='index',
-        boot_type='both', use_correction=True):
+        boot_type='both', use_correction=True, return_params=False):
     """evaluates a set of models by a evaluating a few random crossvalidation
     folds per bootstrap.
 
@@ -648,6 +659,7 @@ def eval_dual_bootstrap_random(
         models = [models]
     evaluations = np.zeros((N, len(models), n_cv))
     noise_ceil = np.zeros((2, N, n_cv))
+    fitted_params = []
     for i_sample in tqdm.trange(N):
         if boot_type == 'both':
             sample, rdm_idx, pattern_idx = bootstrap_sample(
@@ -689,13 +701,14 @@ def eval_dual_bootstrap_random(
                 test_s[1] = _concat_sampling(pattern_idx, test_s[1])
             for train_s in train_set:
                 train_s[1] = _concat_sampling(pattern_idx, train_s[1])
-            cv_result = crossval(
+            cv_result, params = crossval(
                 models, sample,
                 train_set, test_set,
                 method=method, fitter=fitter,
                 pattern_descriptor=pattern_descriptor,
-                calc_noise_ceil=False)
+                calc_noise_ceil=False, return_params=True)
             evaluations[i_sample, :, :] = cv_result.evaluations[0]
+            fitted_params.append(params)
         else:  # sample does not allow desired crossvalidation
             evaluations[i_sample, :, :] = np.nan
             noise_ceil[:, i_sample] = np.nan
@@ -736,7 +749,10 @@ def eval_dual_bootstrap_random(
     result = Result(models, evaluations, method=method,
                     cv_method=cv_method, noise_ceiling=noise_ceil,
                     variances=variances, dof=dof)
-    return result
+    if return_params:
+        return result, fitted_params
+    else:
+        return result
 
 
 def _concat_sampling(sample1, sample2):
@@ -751,7 +767,7 @@ def _concat_sampling(sample1, sample2):
 def _internal_cv(models, sample,
                  pattern_descriptor, rdm_descriptor, pattern_idx,
                  k_pattern, k_rdm,
-                 method, fitter):
+                 method, fitter, return_params=False):
     """ runs a crossvalidation for use in bootstrap"""
     train_set, test_set, ceil_set = sets_k_fold(
         sample,
@@ -772,10 +788,13 @@ def _internal_cv(models, sample,
         test_s[1] = _concat_sampling(pattern_idx, test_s[1])
     for train_s in train_set:
         train_s[1] = _concat_sampling(pattern_idx, train_s[1])
-    cv_result = crossval(
+    cv_result, params = crossval(
         models, sample,
         train_set, test_set,
         method=method, fitter=fitter,
         pattern_descriptor=pattern_descriptor,
-        calc_noise_ceil=False)
-    return cv_result.evaluations, nc
+        calc_noise_ceil=False, return_params=True)
+    if return_params:
+        return cv_result.evaluations, nc, params
+    else:
+        return cv_result.evaluations, nc
