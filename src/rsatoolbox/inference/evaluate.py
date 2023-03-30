@@ -555,7 +555,7 @@ def bootstrap_crossval(models, data, method='cosine', fitter=None,
                     models, sample,
                     pattern_descriptor, rdm_descriptor, pattern_idx,
                     k_pattern, k_rdm,
-                    method, fitter)
+                    method, fitter, return_params=True)
                 noise_ceil[:, i_sample, i_rep] = cv_nc
                 evaluations[i_sample, :, :, i_rep] = evals[0]
                 fitted_params.append(params)
@@ -767,7 +767,7 @@ def _concat_sampling(sample1, sample2):
 def _internal_cv(models, sample,
                  pattern_descriptor, rdm_descriptor, pattern_idx,
                  k_pattern, k_rdm,
-                 method, fitter, return_params):
+                 method, fitter, return_params=False):
     """ runs a crossvalidation for use in bootstrap"""
     train_set, test_set, ceil_set = sets_k_fold(
         sample,
